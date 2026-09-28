@@ -13,17 +13,11 @@ defmodule Sequin.Runtime.SnsPipeline do
 
   @impl SinkPipeline
   def init(context, _opts) do
-    %{consumer: consumer, test_pid: test_pid} = context
+    %{test_pid: test_pid} = context
 
     setup_allowances(test_pid)
 
-    case SnsSink.aws_client(consumer.sink) do
-      {:ok, client} ->
-        Map.put(context, :sns_client, client)
-
-      {:error, reason} ->
-        raise "Failed to initialize SNS client: #{inspect(reason)}"
-    end
+    context
   end
 
   @impl SinkPipeline
@@ -53,23 +47,25 @@ defmodule Sequin.Runtime.SnsPipeline do
   def handle_batch(:default, messages, %{batch_key: topic_arn}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      sns_client: sns_client,
       test_pid: test_pid
     } = context
 
     setup_allowances(test_pid)
 
-    sns_messages =
-      Enum.map(messages, fn message ->
-        build_sns_message(consumer, message)
-      end)
+    # Fetch the client per batch so task role/IRSA credentials stay fresh (aws_credentials refreshes them in the background)
+    with {:ok, sns_client} <- SnsSink.aws_client(consumer.sink) do
+      sns_messages =
+        Enum.map(messages, fn message ->
+          build_sns_message(consumer, message)
+        end)
 
-    case SNS.publish_messages(sns_client, topic_arn, sns_messages) do
-      :ok ->
-        {:ok, messages, context}
+      case SNS.publish_messages(sns_client, topic_arn, sns_messages) do
+        :ok ->
+          {:ok, messages, context}
 
-      {:error, error} ->
-        {:error, error}
+        {:error, error} ->
+          {:error, error}
+      end
     end
   end
 

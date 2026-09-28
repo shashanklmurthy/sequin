@@ -14,17 +14,11 @@ defmodule Sequin.Runtime.KinesisPipeline do
 
   @impl SinkPipeline
   def init(context, _opts) do
-    %{consumer: consumer, test_pid: test_pid} = context
+    %{test_pid: test_pid} = context
 
     setup_allowances(test_pid)
 
-    case KinesisSink.aws_client(consumer.sink) do
-      {:ok, client} ->
-        Map.put(context, :kinesis_client, client)
-
-      {:error, reason} ->
-        raise "Failed to initialize Kinesis client: #{inspect(reason)}"
-    end
+    context
   end
 
   @impl SinkPipeline
@@ -54,18 +48,20 @@ defmodule Sequin.Runtime.KinesisPipeline do
   def handle_batch(:default, messages, %{batch_key: stream_arn}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      kinesis_client: kinesis_client,
       test_pid: test_pid
     } = context
 
     setup_allowances(test_pid)
 
-    records =
-      Enum.map(messages, fn message -> build_kinesis_record(consumer, message) end)
+    # Fetch the client per batch so task role/IRSA credentials stay fresh (aws_credentials refreshes them in the background)
+    with {:ok, kinesis_client} <- KinesisSink.aws_client(consumer.sink) do
+      records =
+        Enum.map(messages, fn message -> build_kinesis_record(consumer, message) end)
 
-    case Kinesis.put_records(kinesis_client, stream_arn, records) do
-      :ok -> {:ok, messages, context}
-      {:error, error} -> {:error, error}
+      case Kinesis.put_records(kinesis_client, stream_arn, records) do
+        :ok -> {:ok, messages, context}
+        {:error, error} -> {:error, error}
+      end
     end
   end
 

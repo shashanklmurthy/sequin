@@ -14,17 +14,11 @@ defmodule Sequin.Runtime.SqsPipeline do
 
   @impl SinkPipeline
   def init(context, _opts) do
-    %{consumer: consumer, test_pid: test_pid} = context
+    %{test_pid: test_pid} = context
 
     setup_allowances(test_pid)
 
-    case SqsSink.aws_client(consumer.sink) do
-      {:ok, client} ->
-        Map.put(context, :sqs_client, client)
-
-      {:error, reason} ->
-        raise "Failed to initialize SQS client: #{inspect(reason)}"
-    end
+    context
   end
 
   @impl SinkPipeline
@@ -54,23 +48,25 @@ defmodule Sequin.Runtime.SqsPipeline do
   def handle_batch(:default, messages, %{batch_key: queue_url}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      sqs_client: sqs_client,
       test_pid: test_pid
     } = context
 
     setup_allowances(test_pid)
 
-    sqs_messages =
-      Enum.map(messages, fn %{data: data} ->
-        build_sqs_message(consumer, data)
-      end)
+    # Fetch the client per batch so task role/IRSA credentials stay fresh (aws_credentials refreshes them in the background)
+    with {:ok, sqs_client} <- SqsSink.aws_client(consumer.sink) do
+      sqs_messages =
+        Enum.map(messages, fn %{data: data} ->
+          build_sqs_message(consumer, data)
+        end)
 
-    case SQS.send_messages(sqs_client, queue_url, sqs_messages) do
-      :ok ->
-        {:ok, messages, context}
+      case SQS.send_messages(sqs_client, queue_url, sqs_messages) do
+        :ok ->
+          {:ok, messages, context}
 
-      {:error, error} ->
-        {:error, Error.service(service: "sqs_pipeline", code: :unknown_error, message: inspect(error))}
+        {:error, error} ->
+          {:error, Error.service(service: "sqs_pipeline", code: :unknown_error, message: inspect(error))}
+      end
     end
   end
 
