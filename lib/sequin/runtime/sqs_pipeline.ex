@@ -54,7 +54,6 @@ defmodule Sequin.Runtime.SqsPipeline do
   def handle_batch(:default, messages, %{batch_key: queue_url}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      sqs_client: sqs_client,
       test_pid: test_pid
     } = context
 
@@ -65,12 +64,14 @@ defmodule Sequin.Runtime.SqsPipeline do
         build_sqs_message(consumer, data)
       end)
 
-    case SQS.send_messages(sqs_client, queue_url, sqs_messages) do
-      :ok ->
-        {:ok, messages, context}
+    with {:ok, sqs_client} <- current_client(context) do
+      case SQS.send_messages(sqs_client, queue_url, sqs_messages) do
+        :ok ->
+          {:ok, messages, context}
 
-      {:error, error} ->
-        {:error, Error.service(service: "sqs_pipeline", code: :unknown_error, message: inspect(error))}
+        {:error, error} ->
+          {:error, Error.service(service: "sqs_pipeline", code: :unknown_error, message: inspect(error))}
+      end
     end
   end
 
@@ -93,6 +94,15 @@ defmodule Sequin.Runtime.SqsPipeline do
       message
     end
   end
+
+  # Task role credentials are temporary (e.g. IRSA web identity tokens projected into the pod).
+  # aws_credentials refreshes them in the background, so re-read them for every batch instead
+  # of holding on to the client built in init/2, which stops working once its credentials expire.
+  defp current_client(%{consumer: %SinkConsumer{sink: %{use_task_role: true} = sink}}) do
+    SqsSink.aws_client(sink)
+  end
+
+  defp current_client(%{sqs_client: client}), do: {:ok, client}
 
   defp setup_allowances(nil), do: :ok
 
