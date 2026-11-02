@@ -7,8 +7,10 @@ IMAGE_PREFIX="sequin/sequin"
 export IMAGE_PREFIX
 export IMAGE_VERSION
 
-# Pull the AMD64 image
-docker pull "$IMAGE_PREFIX:$IMAGE_VERSION"
+# Pull the AMD64 image unless it was already loaded locally (e.g. from a build artifact)
+if ! docker image inspect "$IMAGE_PREFIX:$IMAGE_VERSION" >/dev/null 2>&1; then
+  docker pull "$IMAGE_PREFIX:$IMAGE_VERSION"
+fi
 
 # Directory for our test configuration
 TEST_CONFIG="test-config"
