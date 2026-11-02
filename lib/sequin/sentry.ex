@@ -7,12 +7,11 @@ defmodule Sequin.Sentry do
       System.get_env("CRASH_REPORTING_DISABLED") in ~w(true 1) ->
         Sentry.put_config(:dsn, nil)
 
-      env == :prod ->
-        # Ensure Sentry DSN was set during compile
-        if is_nil(Application.get_env(:sentry, :dsn)) do
-          raise "SENTRY_DSN was not set at build time. This is a bug."
-        end
+      # Image built without a SENTRY_DSN: crash reporting is off
+      env == :prod and is_nil(Application.get_env(:sentry, :dsn)) ->
+        :ok
 
+      env == :prod ->
         :logger.add_handler(:sentry_handler, Sentry.LoggerHandler, %{})
 
       true ->

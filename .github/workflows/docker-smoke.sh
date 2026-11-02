@@ -7,8 +7,10 @@ IMAGE_PREFIX="sequin/sequin"
 export IMAGE_PREFIX
 export IMAGE_VERSION
 
-# Pull the AMD64 image
-docker pull "$IMAGE_PREFIX:$IMAGE_VERSION"
+# Pull the AMD64 image unless it was already loaded locally (e.g. from a build artifact)
+if ! docker image inspect "$IMAGE_PREFIX:$IMAGE_VERSION" >/dev/null 2>&1; then
+  docker pull "$IMAGE_PREFIX:$IMAGE_VERSION"
+fi
 
 # Directory for our test configuration
 TEST_CONFIG="test-config"
@@ -18,9 +20,9 @@ TEST_COMPOSE_YML="docker-compose.test.yml"
 
 mkdir -p "$TEST_CONFIG"
 
-# Patch docker-compose file with correct image version
+# Patch docker-compose file with correct image version, using the local image instead of re-pulling it
 cat <"$REAL_CONFIG/$REAL_COMPOSE_YML" \
-  | yq '.services.sequin.image = strenv(IMAGE_PREFIX) + ":" + strenv(IMAGE_VERSION)' \
+  | yq '.services.sequin.image = strenv(IMAGE_PREFIX) + ":" + strenv(IMAGE_VERSION) | .services.sequin.pull_policy = "missing"' \
   | cat >"$TEST_CONFIG/$TEST_COMPOSE_YML"
 
 cp -r "$REAL_CONFIG"/* "$TEST_CONFIG"
