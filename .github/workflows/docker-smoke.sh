@@ -20,9 +20,9 @@ TEST_COMPOSE_YML="docker-compose.test.yml"
 
 mkdir -p "$TEST_CONFIG"
 
-# Patch docker-compose file with correct image version
+# Patch docker-compose file with correct image version, using the local image instead of re-pulling it
 cat <"$REAL_CONFIG/$REAL_COMPOSE_YML" \
-  | yq '.services.sequin.image = strenv(IMAGE_PREFIX) + ":" + strenv(IMAGE_VERSION)' \
+  | yq '.services.sequin.image = strenv(IMAGE_PREFIX) + ":" + strenv(IMAGE_VERSION) | .services.sequin.pull_policy = "missing"' \
   | cat >"$TEST_CONFIG/$TEST_COMPOSE_YML"
 
 cp -r "$REAL_CONFIG"/* "$TEST_CONFIG"
