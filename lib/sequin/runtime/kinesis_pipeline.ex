@@ -54,7 +54,6 @@ defmodule Sequin.Runtime.KinesisPipeline do
   def handle_batch(:default, messages, %{batch_key: stream_arn}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      kinesis_client: kinesis_client,
       test_pid: test_pid
     } = context
 
@@ -63,9 +62,9 @@ defmodule Sequin.Runtime.KinesisPipeline do
     records =
       Enum.map(messages, fn message -> build_kinesis_record(consumer, message) end)
 
-    case Kinesis.put_records(kinesis_client, stream_arn, records) do
-      :ok -> {:ok, messages, context}
-      {:error, error} -> {:error, error}
+    with {:ok, kinesis_client} <- current_client(context),
+         :ok <- Kinesis.put_records(kinesis_client, stream_arn, records) do
+      {:ok, messages, context}
     end
   end
 
@@ -81,6 +80,15 @@ defmodule Sequin.Runtime.KinesisPipeline do
       "PartitionKey" => Sequin.String.truncate_with_hash(consumer_data.group_id, @max_partition_key_bytes)
     }
   end
+
+  # Task role credentials are temporary (e.g. IRSA web identity tokens projected into the pod).
+  # aws_credentials refreshes them in the background, so re-read them for every batch instead
+  # of holding on to the client built in init/2, which stops working once its credentials expire.
+  defp current_client(%{consumer: %SinkConsumer{sink: %{use_task_role: true} = sink}}) do
+    KinesisSink.aws_client(sink)
+  end
+
+  defp current_client(%{kinesis_client: client}), do: {:ok, client}
 
   defp setup_allowances(nil), do: :ok
 

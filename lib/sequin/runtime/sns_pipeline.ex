@@ -53,7 +53,6 @@ defmodule Sequin.Runtime.SnsPipeline do
   def handle_batch(:default, messages, %{batch_key: topic_arn}, context) do
     %{
       consumer: %SinkConsumer{} = consumer,
-      sns_client: sns_client,
       test_pid: test_pid
     } = context
 
@@ -64,12 +63,9 @@ defmodule Sequin.Runtime.SnsPipeline do
         build_sns_message(consumer, message)
       end)
 
-    case SNS.publish_messages(sns_client, topic_arn, sns_messages) do
-      :ok ->
-        {:ok, messages, context}
-
-      {:error, error} ->
-        {:error, error}
+    with {:ok, sns_client} <- current_client(context),
+         :ok <- SNS.publish_messages(sns_client, topic_arn, sns_messages) do
+      {:ok, messages, context}
     end
   end
 
@@ -96,6 +92,15 @@ defmodule Sequin.Runtime.SnsPipeline do
       message
     end
   end
+
+  # Task role credentials are temporary (e.g. IRSA web identity tokens projected into the pod).
+  # aws_credentials refreshes them in the background, so re-read them for every batch instead
+  # of holding on to the client built in init/2, which stops working once its credentials expire.
+  defp current_client(%{consumer: %SinkConsumer{sink: %{use_task_role: true} = sink}}) do
+    SnsSink.aws_client(sink)
+  end
+
+  defp current_client(%{sns_client: client}), do: {:ok, client}
 
   defp setup_allowances(nil), do: :ok
 
