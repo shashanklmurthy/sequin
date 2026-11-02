@@ -2,9 +2,7 @@ name: Docker Build
 
 # Builds linux/amd64 and linux/arm64 images on GitHub-hosted runners and
 # uploads each one as a workflow artifact (a gzipped `docker save` tarball).
-# Nothing is pushed to a registry from CI; use
-# scripts/push-image-artifacts-to-nexus.sh to fetch the artifacts and push
-# them to Nexus.
+# Nothing is pushed to a registry from CI.
 
 on:
   workflow_dispatch:
@@ -135,11 +133,4 @@ jobs:
             echo "## Image artifacts"
             echo ""
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo ""
-            echo "Push to Nexus with:"
-            echo ""
-            echo '```bash'
-            echo "NEXUS_REGISTRY=... NEXUS_USERNAME=... NEXUS_PASSWORD=... \\"
-            echo "  scripts/push-image-artifacts-to-nexus.sh ${GITHUB_RUN_ID}"
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
